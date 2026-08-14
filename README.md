@@ -1,6 +1,6 @@
 # ComfyUI-LoudnessGuard
 
-Two small LUFS-based loudness nodes that only ever reduce level, never boost it — the piece missing from the usual ComfyUI audio toolchain, where every available loudness normalizer (`Music_LufsNormalizer`, `Egregora Audio Gain Match`, WanVideoWrapper's `NormalizeAudioLoudness`) scales symmetrically to a fixed target and will raise quiet clips up along with lowering loud ones.
+Three loudness-correction nodes that only ever reduce level, never boost it — the piece missing from the usual ComfyUI audio toolchain, where every available loudness normalizer (`Music_LufsNormalizer`, `Egregora Audio Gain Match`, WanVideoWrapper's `NormalizeAudioLoudness`) scales symmetrically to a fixed target and will raise quiet clips up along with lowering loud ones.
 
 ## Install
 
@@ -38,6 +38,27 @@ For mixing two tracks (e.g. dialogue + SFX) where the second track should never 
 Outputs: `gain_db`, `reference_lufs`, `target_track_lufs`.
 
 This node doesn't apply the gain itself — feed `gain_db` into a mixer node's gain input (in ComfyUI, right-click a numeric widget → "Convert Widget to Input") so it plugs into whatever mixing node you're already using.
+
+### Sidechain Duck (Time-Varying)
+
+`Relative Ducking Gain` computes a single flat gain for an entire clip based on its overall loudness. That's fine when two tracks don't overlap much in time, but if `target_audio` only partially overlaps with moments where `reference_audio` is active, a flat reduction leaves it quieter than it needs to be during the gaps. This node ducks `target_audio` dynamically instead: it tracks `reference_audio`'s RMS envelope over time, and only pulls `target_audio` down during the stretches where the reference is actually loud — full level elsewhere.
+
+| Input | Type | Default | Notes |
+|---|---|---|---|
+| `reference_audio` | AUDIO | — | e.g. your dialogue/voice track |
+| `target_audio` | AUDIO | — | e.g. your SFX track |
+| `threshold_db` | FLOAT | -35.0 | RMS level in the reference above which ducking engages |
+| `max_duck_db` | FLOAT | 12.0 | Ceiling on how much reduction is ever applied |
+| `attack_ms` | FLOAT | 15.0 | How fast ducking engages when the reference gets loud |
+| `release_ms` | FLOAT | 250.0 | How fast it releases back to full level after |
+
+Outputs: `audio` (the ducked `target_audio`), `avg_duck_db` (mean reduction applied across the whole clip, for logging).
+
+`reference_audio` and `target_audio` are assumed to start at the same point in time (e.g. both begin at the start of the same shot/clip) — the reference's envelope is time-mapped onto the target by elapsed seconds, not by sample count, so differing sample rates are handled automatically, but a timing offset between the two isn't.
+
+## Bundling a fixed pipeline into one reusable step
+
+These nodes are single-purpose on purpose — they don't replicate denoise/EQ/compression that already exists and works in packs like `comfyui_audiotools` or `ComfyUI_MusicTools`. If you've settled on a fixed chain of nodes (from this pack and others) that you want to stop re-wiring by hand, use ComfyUI's own **Group Node** feature: select the finished chain, right-click → "Convert to Group Node" (or save it as a subgraph template in newer ComfyUI versions). That gives you a single reusable block with your exact settings baked in, without this repo needing to reimplement anyone else's DSP.
 
 ## Why not just use a LUFS normalizer + skip it conditionally?
 
